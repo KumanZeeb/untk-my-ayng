@@ -17,7 +17,12 @@ const headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
 };
 
-// =================== URL HELPER FUNCTIONS ===================
+// =================== EXTENSIVE DEBUG HELPERS ===================
+const debugLog = (prefix, data) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${prefix}:`, JSON.stringify(data, null, 2));
+};
+
 const isValidUrl = (string) => {
     try {
         new URL(string);
@@ -31,10 +36,12 @@ const getCleanBaseUrl = () => {
     // Priority: env variable → hardcoded fallback
     let baseUrl = process.env.DRAKORKITA_URL || 'https://drakorkita.com';
     
-    // Debug logging
-    console.log('🔍 URL DEBUG - Original DRAKORKITA_URL:', baseUrl);
-    console.log('🔍 URL DEBUG - Type:', typeof baseUrl);
-    console.log('🔍 URL DEBUG - Raw value:', JSON.stringify(baseUrl));
+    debugLog('🔍 URL DEBUG - Original DRAKORKITA_URL', {
+        value: baseUrl,
+        type: typeof baseUrl,
+        length: baseUrl.length,
+        raw: JSON.stringify(baseUrl)
+    });
     
     // Convert to string and trim
     baseUrl = baseUrl.toString().trim();
@@ -44,7 +51,7 @@ const getCleanBaseUrl = () => {
     
     // Ensure it has protocol
     if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-        console.log('⚠️  Adding https:// to URL');
+        debugLog('⚠️  Adding https:// to URL', { before: baseUrl });
         baseUrl = 'https://' + baseUrl;
     }
     
@@ -53,12 +60,12 @@ const getCleanBaseUrl = () => {
     
     // Validate final URL
     if (!isValidUrl(baseUrl)) {
-        console.error('❌ ERROR: Invalid URL after cleaning:', baseUrl);
+        debugLog('❌ ERROR: Invalid URL after cleaning', { baseUrl });
         // Fallback to hardcoded URL
         return 'https://drakorkita.com';
     }
     
-    console.log('✅ Final cleaned baseUrl:', baseUrl);
+    debugLog('✅ Final cleaned baseUrl', { baseUrl });
     return baseUrl;
 };
 
@@ -66,7 +73,7 @@ const buildUrl = (path) => {
     const baseUrl = getCleanBaseUrl();
     const fullUrl = `${baseUrl}${path}`;
     
-    console.log('🔗 Building URL:', {
+    debugLog('🔗 Building URL', {
         baseUrl,
         path,
         fullUrl,
@@ -80,20 +87,74 @@ const buildUrl = (path) => {
     return fullUrl;
 };
 
+const makeRequest = async (url, endpointName) => {
+    const startTime = Date.now();
+    
+    debugLog(`🚀 ${endpointName} - Starting request`, {
+        url,
+        endpointName,
+        startTime
+    });
+    
+    try {
+        const response = await axios.get(url, { 
+            headers,
+            timeout: 20000,
+            validateStatus: () => true // Accept all status codes
+        });
+        
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        debugLog(`✅ ${endpointName} - Request completed`, {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            duration: `${duration}ms`,
+            dataLength: response.data ? response.data.length : 0,
+            contentType: response.headers['content-type'],
+            hasData: !!response.data
+        });
+        
+        return response;
+        
+    } catch (error) {
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        debugLog(`❌ ${endpointName} - Request failed`, {
+            url,
+            duration: `${duration}ms`,
+            error: error.message,
+            errorType: error.constructor.name,
+            isAxiosError: error.isAxiosError,
+            code: error.code,
+            responseStatus: error.response ? error.response.status : null,
+            responseHeaders: error.response ? error.response.headers : null
+        });
+        
+        throw error;
+    }
+};
+
 // =================== DEBUG ENDPOINTS ===================
 const debugEnv = async (req, res) => {
     try {
+        debugLog('🔧 debugEnv - Called', {
+            query: req.query,
+            params: req.params,
+            headers: Object.keys(req.headers)
+        });
+        
         const envVars = {};
         const allKeys = Object.keys(process.env);
         
-        // Get all environment variables (filtered for security)
         allKeys.forEach(key => {
             if (key.includes('DRAKOR') || key.includes('URL') || key.includes('VERCEL') || key.includes('NODE')) {
                 envVars[key] = process.env[key];
             }
         });
         
-        // Test URL construction
         const testUrls = [
             'https://drakorkita.com',
             'http://drakorkita.com',
@@ -116,13 +177,12 @@ const debugEnv = async (req, res) => {
                     url,
                     valid: false,
                     error: error.message,
-                    charCodes: [...url].map(c => c.charCodeAt(0)),
-                    visibleChars: url.replace(/[^\x20-\x7E]/g, '')
+                    charCodes: [...url].map(c => c.charCodeAt(0))
                 };
             }
         });
         
-        res.status(200).json({
+        const responseData = {
             message: "Debug Information",
             timestamp: new Date().toISOString(),
             environment: {
@@ -142,9 +202,13 @@ const debugEnv = async (req, res) => {
                 params: req.params,
                 originalUrl: req.originalUrl
             }
-        });
+        };
+        
+        debugLog('✅ debugEnv - Response ready', { dataLength: JSON.stringify(responseData).length });
+        
+        res.status(200).json(responseData);
     } catch (error) {
-        console.error('Debug endpoint error:', error);
+        debugLog('❌ debugEnv - Error', { error: error.message, stack: error.stack });
         res.status(500).json({
             message: "Debug failed",
             error: error.message
@@ -157,63 +221,174 @@ const testConnection = async (req, res) => {
         const baseUrl = getCleanBaseUrl();
         const testUrl = `${baseUrl}/all?media_type=tv&page=1`;
         
-        console.log('🔍 Testing connection to:', testUrl);
+        debugLog('🧪 testConnection - Starting', { testUrl, baseUrl });
         
-        const response = await axios.get(testUrl, {
-            headers,
-            timeout: 10000,
-            validateStatus: () => true // Accept all status codes
-        });
+        const response = await makeRequest(testUrl, 'testConnection');
         
-        res.status(200).json({
+        const responseData = {
             message: "Connection test",
             testUrl,
             status: response.status,
             statusText: response.statusText,
-            headers: Object.keys(response.headers),
+            headers: response.headers,
             dataLength: response.data ? response.data.length : 0,
+            sampleData: response.data ? response.data.substring(0, 500) : 'No data',
             timestamp: new Date().toISOString()
+        };
+        
+        debugLog('✅ testConnection - Success', { 
+            status: response.status,
+            dataLength: responseData.dataLength
         });
+        
+        res.status(200).json(responseData);
     } catch (error) {
-        console.error('Connection test failed:', error.message);
+        debugLog('❌ testConnection - Failed', { error: error.message });
         res.status(500).json({
             message: "Connection test failed",
             error: error.message,
-            stack: error.stack
+            baseUrl: getCleanBaseUrl(),
+            timestamp: new Date().toISOString()
         });
     }
 };
 
-// =================== MAIN API ENDPOINTS ===================
+const simpleTest = async (req, res) => {
+    try {
+        debugLog('🧪 simpleTest - Starting', { query: req.query });
+        
+        const baseUrl = getCleanBaseUrl();
+        const testUrl = `${baseUrl}/all?media_type=tv&page=1`;
+        
+        // Test dengan berbagai headers
+        const testHeaders1 = {
+            ...headers,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        };
+        
+        const tests = [
+            { name: 'Default headers', headers: headers },
+            { name: 'Enhanced headers', headers: testHeaders1 }
+        ];
+        
+        const results = [];
+        
+        for (const test of tests) {
+            try {
+                const startTime = Date.now();
+                const response = await axios.get(testUrl, {
+                    headers: test.headers,
+                    timeout: 10000,
+                    validateStatus: () => true
+                });
+                
+                const duration = Date.now() - startTime;
+                
+                results.push({
+                    test: test.name,
+                    success: true,
+                    status: response.status,
+                    duration: `${duration}ms`,
+                    dataLength: response.data ? response.data.length : 0,
+                    contentType: response.headers['content-type'],
+                    hasData: !!response.data
+                });
+                
+            } catch (testError) {
+                results.push({
+                    test: test.name,
+                    success: false,
+                    error: testError.message,
+                    isAxiosError: testError.isAxiosError,
+                    responseStatus: testError.response ? testError.response.status : null
+                });
+            }
+        }
+        
+        const responseData = {
+            message: "Simple test results",
+            targetUrl: testUrl,
+            baseUrl: baseUrl,
+            tests: results,
+            timestamp: new Date().toISOString()
+        };
+        
+        debugLog('✅ simpleTest - Completed', { 
+            totalTests: results.length,
+            successful: results.filter(r => r.success).length
+        });
+        
+        res.status(200).json(responseData);
+    } catch (error) {
+        debugLog('❌ simpleTest - Failed', { error: error.message });
+        res.status(500).json({
+            message: "Simple test failed",
+            error: error.message
+        });
+    }
+};
+
+// =================== MAIN API ENDPOINTS WITH EXTENSIVE DEBUG ===================
 const seriesAll = async (req, res) => {
+    const startTime = Date.now();
+    
     try {
         const { page = 1 } = req.query;
         
-        console.log('📺 seriesAll called with page:', page);
+        debugLog('📺 seriesAll - Starting', { 
+            page, 
+            query: req.query,
+            startTime: new Date(startTime).toISOString()
+        });
         
         const url = buildUrl(`/all?media_type=tv&page=${page}`);
         
-        console.log('🔍 Fetching from URL:', url);
+        debugLog('🔍 seriesAll - Fetching URL', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
+        const axiosResponse = await makeRequest(url, 'seriesAll');
+        
+        debugLog('🔧 seriesAll - Starting scraper', { 
+            dataLength: axiosResponse.data.length,
+            status: axiosResponse.status
         });
-
+        
         const datas = await scrapeSeries(req, axiosResponse);
-
+        
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        debugLog('✅ seriesAll - Success', { 
+            page,
+            duration: `${duration}ms`,
+            itemsFound: datas.datas ? datas.datas.length : 0,
+            pagination: datas.pagination
+        });
+        
         res.status(200).json({
             message: "success",
             page: parseInt(page),
-            ...datas
+            ...datas,
+            debug: {
+                processingTime: `${duration}ms`,
+                url: url
+            }
         });
+        
     } catch (error) {
-        console.error('❌ ERROR in seriesAll:', error.message);
-        console.error('Stack:', error.stack);
-        console.error('Request query:', req.query);
-        console.error('Environment check:', {
-            DRAKORKITA_URL: process.env.DRAKORKITA_URL,
-            NODE_ENV: process.env.NODE_ENV
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        debugLog('❌ seriesAll - Error', {
+            error: error.message,
+            errorType: error.constructor.name,
+            duration: `${duration}ms`,
+            page: req.query.page,
+            envUrl: process.env.DRAKORKITA_URL,
+            stack: error.stack
         });
         
         res.status(500).json({
@@ -222,31 +397,42 @@ const seriesAll = async (req, res) => {
             debug: {
                 timestamp: new Date().toISOString(),
                 page: req.query.page,
-                env_url: process.env.DRAKORKITA_URL
+                env_url: process.env.DRAKORKITA_URL,
+                processingTime: `${duration}ms`,
+                errorDetails: {
+                    message: error.message,
+                    code: error.code
+                }
             }
         });
     }
 };
 
 const seriesUpdated = async (req, res) => {
+    const startTime = Date.now();
+    
     try {
         const url = buildUrl('/');
         
-        console.log('🔍 seriesUpdated fetching:', url);
+        debugLog('📺 seriesUpdated - Starting', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'seriesUpdated');
+        
         const datas = await scrapeSeriesUpdated(req, axiosResponse);
-
+        
+        const duration = Date.now() - startTime;
+        
+        debugLog('✅ seriesUpdated - Success', { 
+            duration: `${duration}ms`,
+            itemsFound: datas.length
+        });
+        
         res.status(200).json({
             message: "success",
             datas
         });
     } catch (error) {
-        console.error('❌ ERROR in seriesUpdated:', error.message);
+        debugLog('❌ seriesUpdated - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching updated series"
         });
@@ -254,26 +440,32 @@ const seriesUpdated = async (req, res) => {
 };
 
 const movieAll = async (req, res) => {
+    const startTime = Date.now();
+    
     try {
         const { page = 1 } = req.query;
         const url = buildUrl(`/all?media_type=movie&page=${page}`);
         
-        console.log('🎬 movieAll fetching:', url);
+        debugLog('🎬 movieAll - Starting', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'movieAll');
+        
         const datas = await scrapeMovie(req, axiosResponse);
-
+        
+        const duration = Date.now() - startTime;
+        
+        debugLog('✅ movieAll - Success', { 
+            duration: `${duration}ms`,
+            itemsFound: datas.datas ? datas.datas.length : 0
+        });
+        
         res.status(200).json({
             message: "success",
             page: parseInt(page),
             ...datas
         });
     } catch (error) {
-        console.error('❌ ERROR in movieAll:', error.message);
+        debugLog('❌ movieAll - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching movies"
         });
@@ -284,21 +476,20 @@ const newMovie = async (req, res) => {
     try {
         const url = buildUrl('/');
         
-        console.log('🎬 newMovie fetching:', url);
+        debugLog('🎬 newMovie - Starting', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'newMovie');
+        
         const datas = await scrapeNewMovie(req, axiosResponse);
-
+        
+        debugLog('✅ newMovie - Success', { itemsFound: datas.length });
+        
         res.status(200).json({
             message: "success",
             datas
         });
     } catch (error) {
-        console.error('❌ ERROR in newMovie:', error.message);
+        debugLog('❌ newMovie - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching new movies"
         });
@@ -310,22 +501,23 @@ const ongoingSeries = async (req, res) => {
         const { page = 1 } = req.query;
         const url = buildUrl(`/all?status=returning&page=${page}`);
         
-        console.log('📺 ongoingSeries fetching:', url);
+        debugLog('📺 ongoingSeries - Starting', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'ongoingSeries');
+        
         const datas = await scrapeOngoingSeries(req, axiosResponse);
-
+        
+        debugLog('✅ ongoingSeries - Success', { 
+            itemsFound: datas.datas ? datas.datas.length : 0
+        });
+        
         res.status(200).json({
             message: "success",
             page: parseInt(page),
             ...datas
         });
     } catch (error) {
-        console.error('❌ ERROR in ongoingSeries:', error.message);
+        debugLog('❌ ongoingSeries - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching ongoing series"
         });
@@ -337,22 +529,23 @@ const completedSeries = async (req, res) => {
         const { page = 1 } = req.query;
         const url = buildUrl(`/all?status=ended&page=${page}`);
         
-        console.log('📺 completedSeries fetching:', url);
+        debugLog('📺 completedSeries - Starting', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'completedSeries');
+        
         const datas = await scrapeCompletedSeries(req, axiosResponse);
-
+        
+        debugLog('✅ completedSeries - Success', { 
+            itemsFound: datas.datas ? datas.datas.length : 0
+        });
+        
         res.status(200).json({
             message: "success",
             page: parseInt(page),
             ...datas
         });
     } catch (error) {
-        console.error('❌ ERROR in completedSeries:', error.message);
+        debugLog('❌ completedSeries - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching completed series"
         });
@@ -363,21 +556,20 @@ const genres = async (req, res) => {
     try {
         const url = buildUrl('/');
         
-        console.log('🏷️  genres fetching:', url);
+        debugLog('🏷️  genres - Starting', { url });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'genres');
+        
         const datas = await scrapeGenres(req, axiosResponse);
-
+        
+        debugLog('✅ genres - Success', { itemsFound: datas.length });
+        
         res.status(200).json({
             message: "success",
             datas
         });
     } catch (error) {
-        console.error('❌ ERROR in genres:', error.message);
+        debugLog('❌ genres - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching genres"
         });
@@ -390,22 +582,23 @@ const detailGenres = async (req, res) => {
         const { endpoint } = req.params;
         const url = buildUrl(`/all?genre=${endpoint}&page=${page}`);
         
-        console.log('🏷️  detailGenres fetching:', url);
+        debugLog('🏷️  detailGenres - Starting', { url, endpoint, page });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'detailGenres');
+        
         const datas = await scrapeDetailGenres({ page, endpoint }, axiosResponse);
-
+        
+        debugLog('✅ detailGenres - Success', { 
+            itemsFound: datas.datas ? datas.datas.length : 0
+        });
+        
         res.status(200).json({
             message: "success",
             page: parseInt(page),
             ...datas
         });
     } catch (error) {
-        console.error('❌ ERROR in detailGenres:', error.message);
+        debugLog('❌ detailGenres - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching genre details"
         });
@@ -417,15 +610,16 @@ const searchAll = async (req, res) => {
         const { s, page = 1 } = req.query;
         const url = buildUrl(`/all?q=${encodeURIComponent(s)}&page=${page}`);
         
-        console.log('🔍 searchAll fetching:', url);
+        debugLog('🔍 searchAll - Starting', { url, keyword: s });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'searchAll');
+        
         const datas = await scrapeSearch(req, axiosResponse);
-
+        
+        debugLog('✅ searchAll - Success', { 
+            itemsFound: datas.datas ? datas.datas.length : 0
+        });
+        
         res.status(200).json({
             message: "success",
             page: parseInt(page),
@@ -433,7 +627,7 @@ const searchAll = async (req, res) => {
             ...datas
         });
     } catch (error) {
-        console.error('❌ ERROR in searchAll:', error.message);
+        debugLog('❌ searchAll - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error searching"
         });
@@ -445,21 +639,23 @@ const detailAllType = async (req, res) => {
         const { endpoint } = req.params;
         const url = buildUrl(`/detail/${endpoint}`);
         
-        console.log('🔍 detailAllType fetching:', url);
+        debugLog('🔍 detailAllType - Starting', { url, endpoint });
         
-        const axiosResponse = await axios.get(url, { 
-            headers,
-            timeout: 15000
-        });
-
+        const axiosResponse = await makeRequest(url, 'detailAllType');
+        
         const data = await scrapeDetailAllType({ endpoint }, axiosResponse);
-
+        
+        debugLog('✅ detailAllType - Success', { 
+            hasData: !!data,
+            hasEpisodes: data.episodes ? data.episodes.length : 0
+        });
+        
         res.status(200).json({
             message: "success",
             data
         });
     } catch (error) {
-        console.error('❌ ERROR in detailAllType:', error.message);
+        debugLog('❌ detailAllType - Error', { error: error.message });
         res.status(500).json({
             message: error.message || "Error fetching details"
         });
@@ -467,13 +663,21 @@ const detailAllType = async (req, res) => {
 };
 
 const getVideoUrl = async (req, res) => {
+    const startTime = Date.now();
+    
     try {
         const { endpoint } = req.params;
         const { episode = 0, resolution = 0 } = req.query;
         
-        console.log('🎥 getVideoUrl called:', { endpoint, episode, resolution });
+        debugLog('🎥 getVideoUrl - Starting', { 
+            endpoint, 
+            episode, 
+            resolution,
+            startTime: new Date(startTime).toISOString()
+        });
         
         if (!endpoint) {
+            debugLog('❌ getVideoUrl - Missing endpoint', {});
             return res.status(400).json({
                 success: false,
                 error: 'Endpoint is required'
@@ -484,13 +688,14 @@ const getVideoUrl = async (req, res) => {
         const resNum = parseInt(resolution) || 0;
         
         const detailUrl = buildUrl(`/detail/${endpoint}`);
-        console.log('🔍 Fetching detail:', detailUrl);
+        debugLog('🔍 getVideoUrl - Fetching detail', { detailUrl });
         
-        const axiosResponse = await axios.get(detailUrl, { headers });
-        const $ = cheerio.load(axiosResponse.data);
+        const detailResponse = await makeRequest(detailUrl, 'getVideoUrl-detail');
+        const $ = cheerio.load(detailResponse.data);
         
         const onclick = $("div.pagination > a").last().attr("onclick");
         if (!onclick) {
+            debugLog('❌ getVideoUrl - No onclick found', {});
             return res.status(404).json({
                 success: false,
                 error: 'Video data not found'
@@ -501,14 +706,22 @@ const getVideoUrl = async (req, res) => {
         const movieId = movieIdAndTag.split(",")[0].replace(/^'|'$/g, '');
         const tag = movieIdAndTag.split(",")[1].replace(/^'|'$/g, '');
         
+        debugLog('🔑 getVideoUrl - Extracted IDs', { movieId, tag });
+        
         const episodeUrl = buildUrl(`/api/episode.php?movie_id=${movieId}&tag=${tag}`);
-        console.log('🔍 Fetching episodes:', episodeUrl);
+        debugLog('🔍 getVideoUrl - Fetching episodes', { episodeUrl });
         
         const { data: { episode_lists } } = await axios.get(episodeUrl, { headers });
         const $eps = cheerio.load(episode_lists);
         const episodes = $eps("p > a").get();
         
+        debugLog('📋 getVideoUrl - Episodes found', { count: episodes.length });
+        
         if (epNum >= episodes.length || epNum < 0) {
+            debugLog('❌ getVideoUrl - Invalid episode', { 
+                requested: epNum, 
+                available: episodes.length 
+            });
             return res.status(400).json({
                 success: false,
                 error: `Invalid episode. Available: 0-${episodes.length - 1}`
@@ -518,6 +731,7 @@ const getVideoUrl = async (req, res) => {
         const selectedEpisode = episodes[epNum];
         const epsWrap = $(selectedEpisode).attr('onclick');
         if (!epsWrap) {
+            debugLog('❌ getVideoUrl - No eps onclick', {});
             return res.status(404).json({
                 success: false,
                 error: 'Episode data not found'
@@ -528,19 +742,34 @@ const getVideoUrl = async (req, res) => {
         const epsId = epsIdAndTag.split(",")[0].replace(/^'|'$/g, '');
         const epsTag = epsIdAndTag.split(",")[1].replace(/^'|'$/g, '');
         
+        debugLog('🔑 getVideoUrl - Episode IDs', { epsId, epsTag });
+        
         const serverUrl = buildUrl(`/api/server.php?episode_id=${epsId}&tag=${epsTag}`);
-        console.log('🔍 Fetching server:', serverUrl);
+        debugLog('🔍 getVideoUrl - Fetching server', { serverUrl });
         
         const { data: {data: { qua, server_id }} } = await axios.get(serverUrl, { headers });
         
+        debugLog('⚙️ getVideoUrl - Server data', { qua, server_id });
+        
         const videoApiUrl = buildUrl(`/api/video.php?id=${epsId}&qua=${qua}&server_id=${server_id}&tag=${epsTag}`);
-        console.log('🔍 Fetching video URL:', videoApiUrl);
+        debugLog('🔍 getVideoUrl - Fetching video URL', { videoApiUrl });
         
         const { data:{ file } } = await axios.get(videoApiUrl, { headers });
         
+        debugLog('📹 getVideoUrl - Got file data', { 
+            fileLength: file.length,
+            first100: file.substring(0, 100)
+        });
+        
         const videoUrls = file.split(",");
         
+        debugLog('🎯 getVideoUrl - Video URLs parsed', { count: videoUrls.length });
+        
         if (resNum >= videoUrls.length || resNum < 0) {
+            debugLog('❌ getVideoUrl - Invalid resolution', { 
+                requested: resNum, 
+                available: videoUrls.length 
+            });
             return res.status(400).json({
                 success: false,
                 error: `Invalid resolution. Available: 0-${videoUrls.length - 1}`
@@ -553,7 +782,15 @@ const getVideoUrl = async (req, res) => {
             selectedUrl.length
         ).replace(/['"]/g, '').trim();
         
-        console.log('✅ Video URL obtained:', videoUrl);
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        debugLog('✅ getVideoUrl - Success', { 
+            videoUrl,
+            duration: `${duration}ms`,
+            episode: epNum + 1,
+            totalEpisodes: episodes.length
+        });
         
         res.status(200).json({
             success: true,
@@ -563,6 +800,7 @@ const getVideoUrl = async (req, res) => {
                 resolution: resNum,
                 total_resolutions: videoUrls.length,
                 video_url: videoUrl,
+                processing_time: `${duration}ms`,
                 headers_required: {
                     referer: getCleanBaseUrl(),
                     origin: getCleanBaseUrl(),
@@ -572,15 +810,86 @@ const getVideoUrl = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('❌ ERROR in getVideoUrl:', error.message);
-        console.error('Stack:', error.stack);
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        debugLog('❌ getVideoUrl - Error', {
+            error: error.message,
+            errorType: error.constructor.name,
+            duration: `${duration}ms`,
+            endpoint: req.params.endpoint,
+            stack: error.stack
+        });
+        
         res.status(500).json({
             success: false,
             error: error.message || 'Failed to get video URL',
             debug: {
                 timestamp: new Date().toISOString(),
-                endpoint: req.params.endpoint
+                endpoint: req.params.endpoint,
+                processingTime: `${duration}ms`,
+                errorDetails: {
+                    message: error.message,
+                    code: error.code
+                }
             }
+        });
+    }
+};
+
+// =================== NEW DEBUG ENDPOINTS ===================
+const healthCheck = async (req, res) => {
+    try {
+        const health = {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            environment: process.env.NODE_ENV,
+            baseUrl: getCleanBaseUrl()
+        };
+        
+        debugLog('🏥 healthCheck - OK', health);
+        
+        res.status(200).json(health);
+    } catch (error) {
+        debugLog('❌ healthCheck - Error', { error: error.message });
+        res.status(500).json({
+            status: 'unhealthy',
+            error: error.message
+        });
+    }
+};
+
+const rawHtmlTest = async (req, res) => {
+    try {
+        const { page = 1 } = req.query;
+        const url = buildUrl(`/all?media_type=tv&page=${page}`);
+        
+        debugLog('📄 rawHtmlTest - Starting', { url });
+        
+        const response = await makeRequest(url, 'rawHtmlTest');
+        
+        // Return minimal HTML for inspection
+        const html = response.data || '';
+        
+        res.status(200).json({
+            message: "Raw HTML test",
+            url,
+            status: response.status,
+            htmlLength: html.length,
+            sample: html.substring(0, 1000),
+            containsCard: html.includes('card'),
+            containsBungkus: html.includes('bungkus'),
+            containsTitit: html.includes('titit'),
+            containsDetail: html.includes('/detail/')
+        });
+        
+    } catch (error) {
+        debugLog('❌ rawHtmlTest - Error', { error: error.message });
+        res.status(500).json({
+            message: "Raw HTML test failed",
+            error: error.message
         });
     }
 };
@@ -598,5 +907,8 @@ module.exports = {
     detailAllType,
     getVideoUrl,
     debugEnv,
-    testConnection
+    testConnection,
+    simpleTest,
+    healthCheck,
+    rawHtmlTest
 };
