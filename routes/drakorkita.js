@@ -15,7 +15,10 @@ const {
     detailAllType,
     getVideoUrl,
     debugEnv,
-    testConnection
+    testConnection,
+    simpleTest,
+    healthCheck,
+    rawHtmlTest
 } = require("../controllers/drakorkita");
 
 // API Routes
@@ -34,5 +37,8 @@ router.get("/video/:endpoint", getVideoUrl);
 // Debug Routes
 router.get("/debug", debugEnv);
 router.get("/test", testConnection);
+router.get("/simple-test", simpleTest);
+router.get("/health", healthCheck);
+router.get("/raw-html", rawHtmlTest);
 
 module.exports = router;
