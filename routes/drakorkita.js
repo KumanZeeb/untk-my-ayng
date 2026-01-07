@@ -1,4 +1,3 @@
-// routes/drakorkita.js
 const { Router } = require("express");
 const router = Router();
 
@@ -18,10 +17,13 @@ const {
     testConnection,
     simpleTest,
     healthCheck,
-    rawHtmlTest
+    rawHtmlTest,
+    updateConfig,
+    taxiDriver3HTMLPlayer,
+    taxiDriver3SimpleInfo
 } = require("../controllers/drakorkita");
 
-// API Routes
+// =================== MAIN API ROUTES ===================
 router.get("/series", seriesAll);
 router.get("/movie", movieAll);
 router.get("/series/updated", seriesUpdated);
@@ -34,11 +36,18 @@ router.get("/search", searchAll);
 router.get("/detail/:endpoint", detailAllType);
 router.get("/video/:endpoint", getVideoUrl);
 
-// Debug Routes
+// =================== TAXI DRIVER 3 SPECIAL ROUTES ===================
+router.get("/taxi-driver-3/player", taxiDriver3HTMLPlayer);
+router.get("/taxi-driver-3/quick", taxiDriver3SimpleInfo);
+
+// =================== DEBUG & TEST ROUTES ===================
 router.get("/debug", debugEnv);
 router.get("/test", testConnection);
 router.get("/simple-test", simpleTest);
 router.get("/health", healthCheck);
 router.get("/raw-html", rawHtmlTest);
+
+// =================== CONFIGURATION ROUTES ===================
+router.post("/config/update", updateConfig);
 
 module.exports = router;
